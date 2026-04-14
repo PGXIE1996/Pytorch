@@ -42,7 +42,7 @@ def get_data_loaders():
         ]
     )
     dataset = FashionMNIST(
-        root="./data", train=True, transform=transform, download=True
+        root="../data", train=True, transform=transform, download=True
     )
     train_size = int(TRAIN_SPLIT * len(dataset))
     val_size = len(dataset) - train_size

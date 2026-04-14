@@ -9,10 +9,10 @@ from torchvision.datasets import FashionMNIST
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
-from AlexNet.model import AlexNet
+from VGG.model import VGG16
 
-# ===================== 配置中心（严格类型定义） =====================
-BATCH_SIZE = 128
+# ===================== 配置中心 =====================
+BATCH_SIZE = 64
 LR = 0.001
 TRAIN_SPLIT = 0.8
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -21,23 +21,24 @@ PIN_MEMORY = True
 LR_STEP_SIZE = 15
 LR_GAMMA = 0.1
 EPOCHS = 50
+EARLY_STOP_PATIENCE = 5
 
-# 路径
+# 文件路径
 OUTPUT_DIR = "output"
 BEST_MODEL_PATH = os.path.join(OUTPUT_DIR, "best.pth")
 CHECKPOINT_PATH = os.path.join(OUTPUT_DIR, "checkpoint.pth")
-LOG_PATH = os.path.join(OUTPUT_DIR, "log.csv")
+LOG_CSV_PATH = os.path.join(OUTPUT_DIR, "log.csv")
 FIG_PATH = os.path.join(OUTPUT_DIR, "result.png")
 
-# 自动创建目录
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs("../data", exist_ok=True)
 
 
 # ===================== 数据加载 =====================
 def get_data_loaders():
+    # 输入改变
     transform = transforms.Compose(
-        [transforms.ToTensor(), transforms.Resize(size=(227, 227))]
+        [transforms.ToTensor(), transforms.Resize(size=(224, 224))]
     )
     dataset = FashionMNIST(
         root="../data", train=True, transform=transform, download=True
@@ -65,24 +66,16 @@ def get_data_loaders():
 
 # ===================== 单轮训练/验证 =====================
 def run_epoch(model, dataloader, is_train, optimizer, criterion, device):
-    """
-    运行一个 epoch 的训练或验证
-    返回 (平均损失, 准确率)
-    """
     model.train(is_train)
     total_loss = 0.0
     correct = 0
     total = 0
 
     with torch.set_grad_enabled(is_train):
-        pbar = tqdm(
-            dataloader,
-            desc="Train" if is_train else "Val",
-        )
+        pbar = tqdm(dataloader, desc="Train" if is_train else "Val")
         for data, label in pbar:
             data, label = data.to(device), label.to(device)
             output = model(data)
-
             loss = criterion(output, label)
 
             if is_train:
@@ -95,7 +88,6 @@ def run_epoch(model, dataloader, is_train, optimizer, criterion, device):
             correct += (pred == label).sum().item()
             total += data.size(0)
 
-            # 更新进度条显示
             pbar.set_postfix(
                 {"loss": f"{total_loss / total:.4f}", "acc": f"{correct / total:.4f}"}
             )
@@ -104,7 +96,14 @@ def run_epoch(model, dataloader, is_train, optimizer, criterion, device):
 
 
 # ===================== 主训练流程 =====================
-def train_model(model, train_loader, val_loader, epochs=EPOCHS, device=DEVICE):
+def train_model(
+    model,
+    train_loader,
+    val_loader,
+    epochs=EPOCHS,
+    device=DEVICE,
+    patience=EARLY_STOP_PATIENCE,
+):
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
     criterion = nn.CrossEntropyLoss()
@@ -114,34 +113,30 @@ def train_model(model, train_loader, val_loader, epochs=EPOCHS, device=DEVICE):
 
     start_epoch = 0
     best_acc = 0.0
+    best_loss = float("inf")
+    patience_counter = 0
 
-    # 加载断点（如果存在）
+    # 加载断点
     if os.path.exists(CHECKPOINT_PATH):
         print(f"恢复断点训练：{CHECKPOINT_PATH}")
-        checkpoint = torch.load(CHECKPOINT_PATH, map_location=DEVICE)
+        checkpoint = torch.load(CHECKPOINT_PATH, map_location=device)
         model.load_state_dict(checkpoint["model"])
         optimizer.load_state_dict(checkpoint["optimizer"])
         scheduler.load_state_dict(checkpoint["scheduler"])
         start_epoch = checkpoint["epoch"]
         best_acc = checkpoint.get("best_acc", 0.0)
+        best_loss = checkpoint.get("best_loss", float("inf"))
+        patience_counter = checkpoint.get("patience_counter", 0)
 
-    # 准备日志文件（追加模式，写入表头如果文件为空）
-    if not os.path.exists(LOG_PATH) or os.path.getsize(LOG_PATH) == 0:
-        with open(LOG_PATH, "w") as f:
-            f.write("epoch,phase,loss,acc,time\n")
-
-    history = {
-        "epoch": [],
-        "train_loss": [],
-        "train_acc": [],
-        "val_loss": [],
-        "val_acc": [],
-    }
+    # 初始化 log CSV（如果文件不存在则写入表头）
+    if not os.path.exists(LOG_CSV_PATH) or os.path.getsize(LOG_CSV_PATH) == 0:
+        with open(LOG_CSV_PATH, "w") as f:
+            f.write("epoch,train_loss,train_acc,train_time,val_loss,val_acc,val_time\n")
 
     for epoch in range(start_epoch, epochs):
         print(f"\nEpoch {epoch+1}/{epochs}")
 
-        # 训练阶段
+        # 训练
         start_time = time.time()
         train_loss, train_acc = run_epoch(
             model,
@@ -149,44 +144,45 @@ def train_model(model, train_loader, val_loader, epochs=EPOCHS, device=DEVICE):
             is_train=True,
             optimizer=optimizer,
             criterion=criterion,
-            device=DEVICE,
+            device=device,
         )
         train_time = time.time() - start_time
 
-        # 验证阶段
+        # 验证
         val_loss, val_acc = run_epoch(
             model,
             val_loader,
             is_train=False,
             optimizer=None,
             criterion=criterion,
-            device=DEVICE,
+            device=device,
         )
         val_time = time.time() - start_time - train_time
 
-        # 记录日志（追加）
-        with open(LOG_PATH, "a") as f:
+        # 记录到 history CSV（每 epoch 一行）
+        with open(LOG_CSV_PATH, "a") as f:
             f.write(
-                f"{epoch+1},train,{train_loss:.6f},{train_acc:.6f},{train_time:.2f}\n"
+                f"{epoch+1},{train_loss:.6f},{train_acc:.6f},{train_time},{val_loss:.6f},{val_acc:.6f},{val_time}\n"
             )
-            f.write(f"{epoch+1},val,{val_loss:.6f},{val_acc:.6f},{val_time:.2f}\n")
-
-        # 保存历史
-        history["epoch"].append(epoch + 1)
-        history["train_loss"].append(train_loss)
-        history["train_acc"].append(train_acc)
-        history["val_loss"].append(val_loss)
-        history["val_acc"].append(val_acc)
 
         # 保存最佳模型（基于验证准确率）
         if val_acc > best_acc:
             best_acc = val_acc
             torch.save(model.state_dict(), BEST_MODEL_PATH)
 
+        # 早停检测（基于验证损失）
+        if val_loss < best_loss:
+            best_loss = val_loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                break
+
         # 更新学习率
         scheduler.step()
 
-        # 保存断点
+        # 保存断点（包含早停计数器）
         torch.save(
             {
                 "epoch": epoch + 1,
@@ -194,11 +190,11 @@ def train_model(model, train_loader, val_loader, epochs=EPOCHS, device=DEVICE):
                 "optimizer": optimizer.state_dict(),
                 "scheduler": scheduler.state_dict(),
                 "best_acc": best_acc,
+                "best_loss": best_loss,
+                "patience_counter": patience_counter,
             },
             CHECKPOINT_PATH,
         )
-
-    return pd.DataFrame(history)
 
 
 # ===================== 绘图函数  =====================
@@ -231,8 +227,10 @@ def plot_loss_acc(df: pd.DataFrame, save_path=FIG_PATH):  # 加上类型提示
 
 # ===================== 主函数 =====================
 if __name__ == "__main__":
-    # model = AlexNet().to(DEVICE)
-    # train_loader, val_loader = get_data_loaders()
-    # train_model(model, train_loader, val_loader, epochs=EPOCHS)
-    df = pd.read_csv(LOG_PATH)
-    plot_loss_acc(df)
+    # 加载模型
+    model = VGG16(num_classes=10).to(DEVICE)
+    train_loader, val_loader = get_data_loaders()
+    train_model(model, train_loader, val_loader, epochs=EPOCHS)
+
+    df = pd.read_csv(LOG_CSV_PATH)
+    plot_loss_acc(df, FIG_PATH)

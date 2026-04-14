@@ -8,8 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import confusion_matrix, classification_report
-
-from LeNet.model import LeNet
+from VGG.model import VGG16
 
 # 配置文件
 BATCH_SIZE = 128
@@ -39,9 +38,7 @@ CLASS_NAMES = [
 
 def get_test_loaders():
     transform = transforms.Compose(
-        [
-            transforms.ToTensor(),
-        ]
+        [transforms.ToTensor(), transforms.Resize(size=(224, 224))]
     )
     dataset = FashionMNIST(
         root="../data", train=False, transform=transform, download=True
@@ -111,7 +108,7 @@ def plot_confusion_matrix(cm, class_names, save_path):
 
 if __name__ == "__main__":
     # 加载模型
-    model = LeNet().to(DEVICE)
+    model = VGG16(num_classes=10).to(DEVICE)
     # 加载训练好的权重（注意：确保 best.pth 是完整的 state_dict）
     state_dict = torch.load(BEST_MODEL_PATH, map_location=DEVICE)
     model.load_state_dict(state_dict)
