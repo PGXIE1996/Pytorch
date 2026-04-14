@@ -9,7 +9,7 @@ from torchvision.datasets import FashionMNIST
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
-from LeNet.model import LeNet
+from AlexNet.model import AlexNet
 
 # ===================== 配置中心（严格类型定义） =====================
 BATCH_SIZE = 128
@@ -37,12 +37,10 @@ os.makedirs("../data", exist_ok=True)
 # ===================== 数据加载 =====================
 def get_data_loaders():
     transform = transforms.Compose(
-        [
-            transforms.ToTensor(),
-        ]
+        [transforms.ToTensor(), transforms.Resize(size=(227, 227))]
     )
     dataset = FashionMNIST(
-        root="./data", train=True, transform=transform, download=True
+        root="../data", train=True, transform=transform, download=True
     )
     train_size = int(TRAIN_SPLIT * len(dataset))
     val_size = len(dataset) - train_size
@@ -186,7 +184,7 @@ def train_model(model, train_loader, val_loader, epochs=EPOCHS, device=DEVICE):
             torch.save(model.state_dict(), BEST_MODEL_PATH)
 
         # 更新学习率
-        # scheduler.step()
+        scheduler.step()
 
         # 保存断点
         torch.save(
@@ -233,7 +231,7 @@ def plot_loss_acc(df, save_path=FIG_PATH):
 
 # ===================== 主函数 =====================
 if __name__ == "__main__":
-    model = LeNet()
+    model = AlexNet().to(DEVICE)
     train_loader, val_loader = get_data_loaders()
     history_df = train_model(model, train_loader, val_loader, epochs=EPOCHS)
     plot_loss_acc(history_df)
