@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 # MNIST数据集：train60000个，test10000个
 train_data = FashionMNIST(
-    root="./data",
+    root="./",
     train=True,
     transform=transforms.ToTensor(),
     download=True,
