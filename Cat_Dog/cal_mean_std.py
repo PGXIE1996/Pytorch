@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 
-def calculate_mean_std(data_root, batch_size=128, num_workers=4, device="cuda"):
+def calculate_mean_std(data_root, batch_size=128, num_workers=0, device="cuda"):
     # 只做 Resize + ToTensor，不归一化
     transform = transforms.Compose(
         [

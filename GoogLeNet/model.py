@@ -49,7 +49,7 @@ class GoogLeNet(nn.Module):
     """经典 GoogLeNet (Inception v1) 完整网络"""
 
     def __init__(self, num_classes=1000, aux_logits=True):
-        super(GoogLeNet, self).__init__()
+        super().__init__()
         self.aux_logits = aux_logits
 
         # 初始卷积层
