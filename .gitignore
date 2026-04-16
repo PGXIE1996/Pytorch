@@ -11,3 +11,6 @@ wheels/
 
 # pth file
 *.pth
+
+#exclude massive images
+data/cat-dog_data
