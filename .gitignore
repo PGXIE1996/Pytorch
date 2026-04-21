@@ -9,8 +9,10 @@ wheels/
 # Virtual environments
 .venv
 
-# pth file
+# weights file
 *.pth
+*.pt
 
 #exclude massive images
 data/cat-dog_data
+data/UCF101
